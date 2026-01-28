@@ -68,6 +68,9 @@ button:hover { background: #555; }
     align-items: center;
     justify-content: center;
     z-index: 2000;
+
+    /* 🔒 empêche tout clic de passer au dessous */
+    pointer-events: auto;
 }
 
 .modal.show { display: flex; }
@@ -80,6 +83,11 @@ button:hover { background: #555; }
     max-height: 85vh;
     overflow: auto;
     border-radius: 6px;
+}
+
+/* empêcher la fermeture quand on clique DANS la fenêtre */
+.modal-content {
+    pointer-events: auto;
 }
 
 .modal-header {
@@ -130,7 +138,7 @@ pre {
 
 <!-- MODAL PROMPT -->
 <div class="modal" id="promptModal">
-    <div class="modal-content">
+    <div class="modal-content" id="modalContent">
         <div class="modal-header" id="modalTitle"></div>
 
         <div class="section">
@@ -156,6 +164,7 @@ const folderInput = document.getElementById("folderInput");
 const toast = document.getElementById("toast");
 
 const modal = document.getElementById("promptModal");
+const modalContent = document.getElementById("modalContent");
 const modalTitle = document.getElementById("modalTitle");
 const promptText = document.getElementById("promptText");
 const helpSection = document.getElementById("helpSection");
@@ -202,14 +211,24 @@ function closeModal() {
     modal.classList.remove("show");
 }
 
-closeModalBtn = document.getElementById("closeModal");
-closeModalBtn.onclick = closeModal;
+closeModal.onclick = closeModal;
 
 copyPrompt.onclick = async () => {
     await navigator.clipboard.writeText(currentPrompt);
     showToast("Prompt copié");
 };
 
+/* ✅ clic sur le fond = fermer */
+modal.addEventListener("click", () => {
+    closeModal();
+});
+
+/* ❌ clic dans la fenêtre = ne rien faire */
+modalContent.addEventListener("click", e => {
+    e.stopPropagation();
+});
+
+/* ⌨️ Échap */
 window.addEventListener("keydown", e => {
     if (e.key === "Escape" && modal.classList.contains("show")) {
         closeModal();
