@@ -19,8 +19,8 @@ body {
 .controls {
     display: flex;
     gap: 10px;
-    margin-bottom: 15px;
     flex-wrap: wrap;
+    margin-bottom: 15px;
 }
 
 button {
@@ -59,11 +59,11 @@ button:hover { background: #555; }
 }
 .toast.show { opacity: 1; }
 
-/* Modal prompt */
+/* Modal */
 .modal {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.6);
+    background: rgba(0,0,0,.65);
     display: none;
     align-items: center;
     justify-content: center;
@@ -75,17 +75,41 @@ button:hover { background: #555; }
 .modal-content {
     background: #1e1e1e;
     padding: 20px;
-    max-width: 800px;
+    max-width: 900px;
     width: 90%;
-    max-height: 80vh;
+    max-height: 85vh;
     overflow: auto;
     border-radius: 6px;
+}
+
+.modal-header {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.section {
+    margin-top: 15px;
+}
+
+.section h3 {
+    margin-bottom: 6px;
+    font-size: 14px;
+    color: #aaa;
+}
+
+pre {
+    background: #111;
+    padding: 10px;
     white-space: pre-wrap;
+    border-radius: 4px;
     font-family: Consolas, monospace;
 }
 
-.modal-content button {
+.modal-buttons {
     margin-top: 15px;
+    display: flex;
+    gap: 10px;
 }
 </style>
 </head>
@@ -97,19 +121,32 @@ button:hover { background: #555; }
 <div class="controls">
     <input type="file" id="folderInput" webkitdirectory multiple>
     <button id="zoomIn">+</button>
-    <button id="zoomOut">-</button>
+    <button id="zoomOut">âˆ’</button>
     <button id="exportZip">Exporter ZIP serveur</button>
-    <button id="showPrompt">Afficher le prompt</button>
 </div>
 
 <div class="gallery" id="gallery"></div>
 <div class="toast" id="toast"></div>
 
-<!-- Modal affichage prompt -->
+<!-- MODAL PROMPT -->
 <div class="modal" id="promptModal">
     <div class="modal-content">
-        <div id="promptContent"></div>
-        <button id="closeModal">Fermer</button>
+        <div class="modal-header" id="modalTitle"></div>
+
+        <div class="section">
+            <h3>Prompt</h3>
+            <pre id="promptText"></pre>
+        </div>
+
+        <div class="section" id="helpSection" style="display:none;">
+            <h3>Aide</h3>
+            <pre id="helpText"></pre>
+        </div>
+
+        <div class="modal-buttons">
+            <button id="copyPrompt">Copier</button>
+            <button id="closeModal">Fermer</button>
+        </div>
     </div>
 </div>
 
@@ -119,11 +156,14 @@ const folderInput = document.getElementById("folderInput");
 const toast = document.getElementById("toast");
 
 const modal = document.getElementById("promptModal");
-const promptContent = document.getElementById("promptContent");
+const modalTitle = document.getElementById("modalTitle");
+const promptText = document.getElementById("promptText");
+const helpSection = document.getElementById("helpSection");
+const helpText = document.getElementById("helpText");
 
 let imageHeight = 240;
 let serverImages = null;
-let lastCopiedPrompt = "";   // ? mémoire du prompt
+let currentPrompt = "";
 
 document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
 
@@ -137,11 +177,44 @@ zoomOut.onclick = () => {
     document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
 };
 
-function showToast(message) {
-    toast.textContent = message;
+function showToast(msg) {
+    toast.textContent = msg;
     toast.classList.add("show");
     setTimeout(() => toast.classList.remove("show"), 1800);
 }
+
+function openModal(title, prompt, help) {
+    modalTitle.textContent = title;
+    promptText.textContent = prompt;
+    currentPrompt = prompt;
+
+    if (help) {
+        helpText.textContent = help;
+        helpSection.style.display = "block";
+    } else {
+        helpSection.style.display = "none";
+    }
+
+    modal.classList.add("show");
+}
+
+function closeModal() {
+    modal.classList.remove("show");
+}
+
+closeModalBtn = document.getElementById("closeModal");
+closeModalBtn.onclick = closeModal;
+
+copyPrompt.onclick = async () => {
+    await navigator.clipboard.writeText(currentPrompt);
+    showToast("Prompt copiÃ©");
+};
+
+window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && modal.classList.contains("show")) {
+        closeModal();
+    }
+});
 
 /* =======================
    MODE SERVEUR
@@ -161,17 +234,23 @@ async function loadGalerieFromServer() {
             const img = document.createElement("img");
             img.src = "Galerie/" + name;
 
-            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
             img.onclick = async () => {
-                const r = await fetch("Galerie/" + base + ".txt");
-                if (!r.ok) {
+                const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
+
+                const txtRes = await fetch("Galerie/" + base + ".txt");
+                if (!txtRes.ok) {
                     showToast("Il manque le prompt.");
                     return;
                 }
-                const text = await r.text();
-                await navigator.clipboard.writeText(text);
-                lastCopiedPrompt = text;
-                showToast("Prompt copié");
+
+                const prompt = await txtRes.text();
+                await navigator.clipboard.writeText(prompt);
+
+                let help = null;
+                const hlpRes = await fetch("Galerie/" + base + ".hlp");
+                if (hlpRes.ok) help = await hlpRes.text();
+
+                openModal(base, prompt, help);
             };
 
             gallery.appendChild(img);
@@ -191,11 +270,12 @@ folderInput.onchange = () => {
 
     const files = Array.from(folderInput.files);
     const texts = {};
+    const helps = {};
 
     files.forEach(f => {
-        if (f.name.endsWith(".txt")) {
-            texts[f.name.replace(".txt","")] = f;
-        }
+        const base = f.name.replace(/\.(txt|hlp)$/i, "");
+        if (f.name.endsWith(".txt")) texts[base] = f;
+        if (f.name.endsWith(".hlp")) helps[base] = f;
     });
 
     files.forEach(f => {
@@ -204,91 +284,23 @@ folderInput.onchange = () => {
             img.src = URL.createObjectURL(f);
 
             const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
+
             img.onclick = async () => {
                 if (!texts[base]) {
                     showToast("Il manque le prompt.");
                     return;
                 }
-                const text = await texts[base].text();
-                await navigator.clipboard.writeText(text);
-                lastCopiedPrompt = text;
-                showToast("Prompt copié");
+
+                const prompt = await texts[base].text();
+                await navigator.clipboard.writeText(prompt);
+
+                const help = helps[base] ? await helps[base].text() : null;
+                openModal(base, prompt, help);
             };
 
             gallery.appendChild(img);
         }
     });
-};
-
-/* =======================
-   EXPORT ZIP (LOCAL + SERVEUR)
-======================= */
-exportZip.onclick = async () => {
-    const zip = new JSZip();
-    const galerie = zip.folder("Galerie");
-
-    if (serverImages) {
-        const json = {
-            generated: new Date().toISOString(),
-            images: serverImages
-        };
-
-        galerie.file("galerie.json", JSON.stringify(json, null, 2));
-
-        for (const name of serverImages) {
-            const imgRes = await fetch("Galerie/" + name);
-            galerie.file(name, await imgRes.arrayBuffer(), { binary: true });
-
-            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
-            const txtRes = await fetch("Galerie/" + base + ".txt");
-            if (txtRes.ok) {
-                galerie.file(base + ".txt", await txtRes.arrayBuffer(), { binary: true });
-            }
-        }
-    }
-    else if (folderInput.files.length) {
-        const files = Array.from(folderInput.files);
-
-        const json = {
-            generated: new Date().toISOString(),
-            images: files.filter(f => f.type.startsWith("image/")).map(f => f.name).sort()
-        };
-
-        galerie.file("galerie.json", JSON.stringify(json, null, 2));
-
-        for (const f of files) {
-            if (f.type.startsWith("image/") || f.name.endsWith(".txt")) {
-                galerie.file(f.name, await f.arrayBuffer(), { binary: true });
-            }
-        }
-    }
-    else {
-        showToast("Aucune galerie disponible.");
-        return;
-    }
-
-    const blob = await zip.generateAsync({ type: "blob" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "galerie_serveur.zip";
-    a.click();
-    URL.revokeObjectURL(a.href);
-};
-
-/* =======================
-   AFFICHER LE PROMPT
-======================= */
-showPrompt.onclick = () => {
-    if (!lastCopiedPrompt) {
-        showToast("Aucun prompt copié.");
-        return;
-    }
-    promptContent.textContent = lastCopiedPrompt;
-    modal.classList.add("show");
-};
-
-closeModal.onclick = () => {
-    modal.classList.remove("show");
 };
 
 /* =======================
