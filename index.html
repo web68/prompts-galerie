@@ -48,7 +48,7 @@ button:hover { background: #555; }
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0,0,0,.8);
+    background: rgba(0,0,0,.85);
     padding: 10px 15px;
     border-radius: 4px;
     opacity: 0;
@@ -67,11 +67,11 @@ button:hover { background: #555; }
     <input type="file" id="folderInput" webkitdirectory multiple>
     <button id="zoomIn">+</button>
     <button id="zoomOut">−</button>
-    <button id="exportZip">Exporter ZIP</button>
+    <button id="exportZip">Exporter ZIP serveur</button>
 </div>
 
 <div class="gallery" id="gallery"></div>
-<div class="toast" id="toast">Texte copié</div>
+<div class="toast" id="toast"></div>
 
 <script>
 const gallery = document.getElementById("gallery");
@@ -79,6 +79,8 @@ const folderInput = document.getElementById("folderInput");
 const toast = document.getElementById("toast");
 
 let imageHeight = 240;
+let serverImages = null;   // ← clé du correctif
+
 document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
 
 zoomIn.onclick = () => {
@@ -91,9 +93,10 @@ zoomOut.onclick = () => {
     document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
 };
 
-function showToast() {
+function showToast(message) {
+    toast.textContent = message;
     toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 1500);
+    setTimeout(() => toast.classList.remove("show"), 1800);
 }
 
 /* =======================
@@ -105,21 +108,24 @@ async function loadGalerieFromServer() {
         if (!res.ok) throw "absent";
 
         const data = await res.json();
-        const images = data.images;
-        if (!images?.length) throw "vide";
+        if (!data.images?.length) throw "vide";
 
+        serverImages = data.images;
         gallery.innerHTML = "";
 
-        for (const name of images) {
+        for (const name of serverImages) {
             const img = document.createElement("img");
             img.src = "Galerie/" + name;
 
             const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
             img.onclick = async () => {
                 const r = await fetch("Galerie/" + base + ".txt");
-                if (!r.ok) return;
+                if (!r.ok) {
+                    showToast("Il manque le prompt.");
+                    return;
+                }
                 await navigator.clipboard.writeText(await r.text());
-                showToast();
+                showToast("Prompt copié");
             };
 
             gallery.appendChild(img);
@@ -131,20 +137,11 @@ async function loadGalerieFromServer() {
 }
 
 /* =======================
-   MODE LOCAL + EXPORT
+   MODE LOCAL
 ======================= */
-function generateGalerieJSON(files) {
-    return {
-        generated: new Date().toISOString(),
-        images: files
-            .filter(f => f.type.startsWith("image/"))
-            .map(f => f.name)
-            .sort()
-    };
-}
-
 folderInput.onchange = () => {
     gallery.innerHTML = "";
+    serverImages = null;
 
     const files = Array.from(folderInput.files);
     const texts = {};
@@ -162,9 +159,12 @@ folderInput.onchange = () => {
 
             const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
             img.onclick = async () => {
-                if (!texts[base]) return;
+                if (!texts[base]) {
+                    showToast("Il manque le prompt.");
+                    return;
+                }
                 await navigator.clipboard.writeText(await texts[base].text());
-                showToast();
+                showToast("Prompt copié");
             };
 
             gallery.appendChild(img);
@@ -172,27 +172,56 @@ folderInput.onchange = () => {
     });
 };
 
+/* =======================
+   EXPORT ZIP (LOCAL + SERVEUR)
+======================= */
 exportZip.onclick = async () => {
-    if (!folderInput.files.length) {
-        alert("Aucun dossier chargé");
-        return;
-    }
-
-    const files = Array.from(folderInput.files);
     const zip = new JSZip();
     const galerie = zip.folder("Galerie");
 
-    const json = generateGalerieJSON(files);
-    galerie.file("galerie.json", JSON.stringify(json, null, 2));
+    // 🔹 MODE SERVEUR (GitHub Pages)
+    if (serverImages) {
+        const json = {
+            generated: new Date().toISOString(),
+            images: serverImages
+        };
 
-	for (const f of files) {
-		if (f.type.startsWith("image/") || f.name.endsWith(".txt")) {
-			const buffer = await f.arrayBuffer();
-			galerie.file(f.name, buffer, {
-				binary: true
-			});
-		}
-	}
+        galerie.file("galerie.json", JSON.stringify(json, null, 2));
+
+        for (const name of serverImages) {
+            const imgRes = await fetch("Galerie/" + name);
+            galerie.file(name, await imgRes.arrayBuffer(), { binary: true });
+
+            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
+            const txtRes = await fetch("Galerie/" + base + ".txt");
+            if (txtRes.ok) {
+                galerie.file(base + ".txt", await txtRes.arrayBuffer(), { binary: true });
+            }
+        }
+    }
+
+    // 🔹 MODE LOCAL
+    else if (folderInput.files.length) {
+        const files = Array.from(folderInput.files);
+
+        const json = {
+            generated: new Date().toISOString(),
+            images: files.filter(f => f.type.startsWith("image/")).map(f => f.name).sort()
+        };
+
+        galerie.file("galerie.json", JSON.stringify(json, null, 2));
+
+        for (const f of files) {
+            if (f.type.startsWith("image/") || f.name.endsWith(".txt")) {
+                galerie.file(f.name, await f.arrayBuffer(), { binary: true });
+            }
+        }
+    }
+
+    else {
+        showToast("Aucune galerie disponible.");
+        return;
+    }
 
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
@@ -206,11 +235,10 @@ exportZip.onclick = async () => {
    INIT
 ======================= */
 window.addEventListener("DOMContentLoaded", async () => {
-    const serveurOK = await loadGalerieFromServer();
-    if (!serveurOK) console.log("Mode local actif");
+    const ok = await loadGalerieFromServer();
+    if (!ok) console.log("Mode local actif");
 });
 </script>
 
 </body>
 </html>
-
