@@ -55,7 +55,7 @@ button:hover { background: #555; }
     border-radius: 4px;
     opacity: 0;
     transition: .3s;
-    z-index: 1000;
+    z-index: 3000;
 }
 .toast.show { opacity: 1; }
 
@@ -69,7 +69,7 @@ button:hover { background: #555; }
     justify-content: center;
     z-index: 2000;
 
-    /* 🔒 empêche tout clic de passer au dessous */
+    /* ?? bloque absolument tout en dessous */
     pointer-events: auto;
 }
 
@@ -83,11 +83,6 @@ button:hover { background: #555; }
     max-height: 85vh;
     overflow: auto;
     border-radius: 6px;
-}
-
-/* empêcher la fermeture quand on clique DANS la fenêtre */
-.modal-content {
-    pointer-events: auto;
 }
 
 .modal-header {
@@ -129,7 +124,7 @@ pre {
 <div class="controls">
     <input type="file" id="folderInput" webkitdirectory multiple>
     <button id="zoomIn">+</button>
-    <button id="zoomOut">−</button>
+    <button id="zoomOut">-</button>
     <button id="exportZip">Exporter ZIP serveur</button>
 </div>
 
@@ -138,7 +133,7 @@ pre {
 
 <!-- MODAL PROMPT -->
 <div class="modal" id="promptModal">
-    <div class="modal-content" id="modalContent">
+    <div class="modal-content">
         <div class="modal-header" id="modalTitle"></div>
 
         <div class="section">
@@ -164,7 +159,6 @@ const folderInput = document.getElementById("folderInput");
 const toast = document.getElementById("toast");
 
 const modal = document.getElementById("promptModal");
-const modalContent = document.getElementById("modalContent");
 const modalTitle = document.getElementById("modalTitle");
 const promptText = document.getElementById("promptText");
 const helpSection = document.getElementById("helpSection");
@@ -211,24 +205,21 @@ function closeModal() {
     modal.classList.remove("show");
 }
 
-closeModal.onclick = closeModal;
-
-copyPrompt.onclick = async () => {
-    await navigator.clipboard.writeText(currentPrompt);
-    showToast("Prompt copié");
-};
-
-/* ✅ clic sur le fond = fermer */
+/* ? N'IMPORTE QUEL CLIC = FERMER */
 modal.addEventListener("click", () => {
     closeModal();
 });
 
-/* ❌ clic dans la fenêtre = ne rien faire */
-modalContent.addEventListener("click", e => {
-    e.stopPropagation();
-});
+/* boutons */
+closeModal.onclick = closeModal;
 
-/* ⌨️ Échap */
+copyPrompt.onclick = async (e) => {
+    e.stopPropagation(); // �viter fermeture avant copie
+    await navigator.clipboard.writeText(currentPrompt);
+    showToast("Prompt copi�");
+};
+
+/* ?? �chap */
 window.addEventListener("keydown", e => {
     if (e.key === "Escape" && modal.classList.contains("show")) {
         closeModal();
