@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Prompts Galerie</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+:root { --img-height: 240px; }
+
+body {
+    font-family: Arial, sans-serif;
+    background: #2b2b2b;
+    color: #e0e0e0;
+    margin: 20px;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+button {
+    background: #444;
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover { background: #555; }
+
+.gallery {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.gallery img {
+    height: var(--img-height);
+    cursor: pointer;
+}
+
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,.8);
+    padding: 10px 15px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: .3s;
+}
+
+.toast.show { opacity: 1; }
+</style>
+</head>
+
+<body>
+
+<h1>Prompts Galerie</h1>
+
+<div class="controls">
+    <input type="file" id="folderInput" webkitdirectory multiple>
+    <button id="zoomIn">+</button>
+    <button id="zoomOut">−</button>
+    <button id="exportZip">Exporter ZIP serveur</button>
+</div>
+
+<div class="gallery" id="gallery"></div>
+<div class="toast" id="toast">Texte copié</div>
+
+<script>
+const gallery = document.getElementById("gallery");
+const folderInput = document.getElementById("folderInput");
+const toast = document.getElementById("toast");
+
+let imageHeight = 240;
+document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
+
+zoomIn.onclick = () => {
+    imageHeight *= 1.2;
+    document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
+};
+
+zoomOut.onclick = () => {
+    imageHeight /= 1.2;
+    document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
+};
+
+function showToast() {
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 1500);
+}
+
+/* =======================
+   MODE SERVEUR
+======================= */
+async function loadGalerieFromServer() {
+    try {
+        const res = await fetch("Galerie/galerie.json", { cache: "no-store" });
+        if (!res.ok) throw "absent";
+
+        const data = await res.json();
+        const images = data.images;
+        if (!images?.length) throw "vide";
+
+        gallery.innerHTML = "";
+
+        for (const name of images) {
+            const img = document.createElement("img");
+            img.src = "Galerie/" + name;
+
+            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
+            img.onclick = async () => {
+                const r = await fetch("Galerie/" + base + ".txt");
+                if (!r.ok) return;
+                await navigator.clipboard.writeText(await r.text());
+                showToast();
+            };
+
+            gallery.appendChild(img);
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/* =======================
+   MODE LOCAL + EXPORT
+======================= */
+function generateGalerieJSON(files) {
+    return {
+        generated: new Date().toISOString(),
+        images: files
+            .filter(f => f.type.startsWith("image/"))
+            .map(f => f.name)
+            .sort()
+    };
+}
+
+folderInput.onchange = () => {
+    gallery.innerHTML = "";
+
+    const files = Array.from(folderInput.files);
+    const texts = {};
+
+    files.forEach(f => {
+        if (f.name.endsWith(".txt")) {
+            texts[f.name.replace(".txt","")] = f;
+        }
+    });
+
+    files.forEach(f => {
+        if (f.type.startsWith("image/")) {
+            const img = document.createElement("img");
+            img.src = URL.createObjectURL(f);
+
+            const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
+            img.onclick = async () => {
+                if (!texts[base]) return;
+                await navigator.clipboard.writeText(await texts[base].text());
+                showToast();
+            };
+
+            gallery.appendChild(img);
+        }
+    });
+};
+
+exportZip.onclick = async () => {
+    if (!folderInput.files.length) {
+        alert("Aucun dossier chargé");
+        return;
+    }
+
+    const files = Array.from(folderInput.files);
+    const zip = new JSZip();
+    const galerie = zip.folder("Galerie");
+
+    const json = generateGalerieJSON(files);
+    galerie.file("galerie.json", JSON.stringify(json, null, 2));
+
+	for (const f of files) {
+		if (f.type.startsWith("image/") || f.name.endsWith(".txt")) {
+			const buffer = await f.arrayBuffer();
+			galerie.file(f.name, buffer, {
+				binary: true
+			});
+		}
+	}
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "galerie_serveur.zip";
+    a.click();
+    URL.revokeObjectURL(a.href);
+};
+
+/* =======================
+   INIT
+======================= */
+window.addEventListener("DOMContentLoaded", async () => {
+    const serveurOK = await loadGalerieFromServer();
+    if (!serveurOK) console.log("Mode local actif");
+});
+</script>
+
+</body>
+</html>

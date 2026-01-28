@@ -1,0 +1,1 @@
+Figure 1 is the source image. Figure 2 is a gray template representing the target aspect ratio. Task: Redraw and extend Figure 1 into the format of Figure 2. Position Figure 1 centered within the frame and outpaint/generate new consistent content to fill the entire gray area of Figure 2. The output must be a single full-resolution image matching Figure 2's proportions.
