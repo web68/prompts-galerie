@@ -88,7 +88,7 @@ button:hover { background: #555; }
 
 .prompt-content {
     overflow-y: auto;
-    padding: var(--prompt-top-padding) 8px 10px 0;
+    padding: var(--prompt-top-padding) 12px 14px 12px;
     white-space: pre-wrap;
 }
 
@@ -122,6 +122,34 @@ button:hover { background: #555; }
     z-index: 5000;
 }
 .toast.show { opacity: 1; }
+
+/* ===== MOBILE ===== */
+@media (max-width: 768px) {
+    :root {
+        --img-height: 160px;
+        --prompt-font-size: 16px;
+    }
+
+    .main {
+        flex-direction: column;
+        height: calc(100vh - 90px);
+    }
+
+    .resize-handle {
+        display: none;
+    }
+
+    .prompt-panel {
+        width: 100% !important;
+        height: 40vh;
+        border-left: none;
+        border-top: 1px solid #444;
+    }
+
+    .gallery {
+        height: 60vh;
+    }
+}
 </style>
 </head>
 
