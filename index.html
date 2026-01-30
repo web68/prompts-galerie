@@ -9,13 +9,8 @@
 <style>
 :root {
     --img-height: 240px;
-    --prompt-font-family: Consolas, monospace;
-    --prompt-font-size: 13px;
     --selected-border-color: orange;
     --selected-border-width: 3px;
-    --title-color: #4fc1ff;
-    --instructions-title-color: #c586c0;
-    --prompt-top-padding: 6px;
 }
 body {
     margin: 0;
@@ -24,291 +19,107 @@ body {
     color: #e0e0e0;
     overflow: hidden;
 }
-body.resizing { user-select: none; cursor: col-resize; }
-
 .header {
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    background: #2b2b2b;
     padding: 15px 20px 10px;
     border-bottom: 1px solid #444;
 }
-
 .controls {
     display: flex;
     gap: 10px;
-    margin-top: 10px;
 }
-
-button {
-    background: #444;
-    color: #fff;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-button:hover { background: #555; }
-
 .main {
     display: flex;
-    height: calc(100vh - 90px);
+    height: calc(100vh - 80px);
 }
-
 .gallery {
     flex: 1;
-    overflow-y: auto;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 15px 20px 30px;
+    padding: 15px;
+    overflow-y: auto;
 }
-
 .gallery img {
     height: var(--img-height);
     cursor: pointer;
-    box-sizing: border-box;
 }
-
 .gallery img.selected {
     border: var(--selected-border-width) solid var(--selected-border-color);
 }
-
 .prompt-panel {
-    display: flex;
-    flex-direction: column;
-    background: #1e1e1e;
+    width: 480px;
     border-left: 1px solid #444;
-    font-family: var(--prompt-font-family);
-    font-size: var(--prompt-font-size);
-}
-
-.prompt-content {
+    padding: 10px;
     overflow-y: auto;
-    padding: var(--prompt-top-padding) 8px 10px 0;
-    white-space: pre-wrap;
 }
-
-.prompt-title {
-    margin: 0 0 6px 0;
-    color: var(--title-color);
-}
-
-.instructions-label {
-    margin: 12px 0 6px 0;
-    color: var(--instructions-title-color);
-    font-weight: bold;
-}
-
-.resize-handle {
-    width: 6px;
-    cursor: col-resize;
-    background: #333;
-}
-
-.toast {
-    position: fixed;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,.95);
-    padding: 8px 16px;
-    border-radius: 4px;
-    opacity: 0;
-    transition: .2s;
-    z-index: 5000;
-}
-.toast.show { opacity: 1; }
 </style>
 </head>
 
 <body>
 
 <div class="header">
-    <h1>Prompts Galerie</h1>
+    <h2>Prompts Galerie</h2>
     <div class="controls">
         <input type="file" id="folderInput" webkitdirectory multiple>
-        <button id="zoomIn">+</button>
-        <button id="zoomOut">-</button>
         <button id="exportZip">Exporter le site</button>
     </div>
 </div>
 
 <div class="main">
     <div class="gallery" id="gallery"></div>
-    <div class="resize-handle" id="resizeHandle"></div>
-    <div class="prompt-panel" id="promptPanel" style="width:500px;">
-        <div class="prompt-content" id="promptContent">
-            Sélectionne un dossier de galerie pour commencer.
-        </div>
+    <div class="prompt-panel" id="promptContent">
+        Sélectionne un dossier pour charger la galerie.
     </div>
 </div>
 
-<div class="toast" id="toast">Prompt copié</div>
-
 <script>
-const DEFAULT_PANEL_WIDTH = 500;
-const STORAGE_KEY_WIDTH = "promptPanelWidth";
-
 const gallery = document.getElementById("gallery");
 const folderInput = document.getElementById("folderInput");
-const zoomInBtn = document.getElementById("zoomIn");
-const zoomOutBtn = document.getElementById("zoomOut");
-const exportZipBtn = document.getElementById("exportZip");
 const promptContent = document.getElementById("promptContent");
-const resizeHandle = document.getElementById("resizeHandle");
-const promptPanel = document.getElementById("promptPanel");
-const toast = document.getElementById("toast");
+const exportZipBtn = document.getElementById("exportZip");
 
 let selectedImage = null;
-let toastTimer = null;
-let imgHeight = 240;
-let localImages = [];
 let localTexts = {};
-let serverImages = null;
 
-const IS_FILE_MODE = location.protocol === "file:";
-
-promptPanel.style.width =
-    (parseInt(localStorage.getItem(STORAGE_KEY_WIDTH)) || DEFAULT_PANEL_WIDTH) + "px";
-
-function showToast(msg) {
-    clearTimeout(toastTimer);
-    toast.innerHTML = msg;
-    toast.classList.add("show");
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 1000);
-}
-
-function parsePrompt(text, fallback) {
-    const lines = text.split(/\r?\n/);
-    let title = fallback;
-    let i = 0;
-
-    if (lines[0]?.startsWith("*")) {
-        title = lines[0].slice(1).trim();
-        i = 1;
-    }
-
-    let prompt = [];
-    let instructions = [];
-    let mode = "prompt";
-
-    for (; i < lines.length; i++) {
-        if (lines[i].trim() === "!") {
-            mode = "instructions";
-            continue;
-        }
-        (mode === "prompt" ? prompt : instructions).push(lines[i]);
-    }
-
-    return {
-        title,
-        prompt: prompt.join("\n").trim(),
-        instructions: instructions.join("\n").trim()
-    };
-}
-
-async function selectImage(img, base, txtFile) {
+function selectImage(img, base, txtFile) {
     if (selectedImage) selectedImage.classList.remove("selected");
     selectedImage = img;
     img.classList.add("selected");
 
-    const text = await txtFile.text();
-    const p = parsePrompt(text, base);
-
-    let html = `<h3 class="prompt-title">${p.title.replace(/_/g," ")}</h3>${p.prompt}`;
-    if (p.instructions) {
-        html += `<div class="instructions-label">Instructions</div>${p.instructions}`;
-    }
-
-    promptContent.innerHTML = html;
-    await navigator.clipboard.writeText(p.prompt);
-    showToast("Prompt copié");
+    txtFile.text().then(text => {
+        promptContent.textContent = text;
+        navigator.clipboard.writeText(text);
+    });
 }
 
-/* ZOOM */
-zoomInBtn.onclick = () => {
-    imgHeight += 20;
-    document.documentElement.style.setProperty("--img-height", imgHeight + "px");
-};
-zoomOutBtn.onclick = () => {
-    imgHeight = Math.max(80, imgHeight - 20);
-    document.documentElement.style.setProperty("--img-height", imgHeight + "px");
-};
-
-/* RESIZE */
-resizeHandle.onmousedown = () => {
-    document.body.classList.add("resizing");
-    document.onmousemove = e => {
-        promptPanel.style.width = Math.max(220, window.innerWidth - e.clientX) + "px";
-    };
-    document.onmouseup = () => {
-        document.body.classList.remove("resizing");
-        localStorage.setItem(STORAGE_KEY_WIDTH, parseInt(promptPanel.style.width));
-        document.onmousemove = document.onmouseup = null;
-    };
-};
-
-/* MODE SERVEUR — uniquement en HTTP */
-if (!IS_FILE_MODE) {
-    (async () => {
-        try {
-            const res = await fetch("Galerie/galerie.json", { cache: "no-store" });
-            const data = await res.json();
-            serverImages = data.images;
-
-            serverImages.forEach((name, i) => {
-                const img = document.createElement("img");
-                img.src = "Galerie/" + name;
-                const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
-                img.onclick = async () => {
-                    const txt = await fetch("Galerie/" + base + ".txt");
-                    selectImage(img, base, await txt.blob());
-                };
-                gallery.appendChild(img);
-            });
-        } catch {}
-    })();
-}
-
-/* MODE LOCAL */
+/* MODE LOCAL UNIQUEMENT */
 folderInput.onchange = () => {
     gallery.innerHTML = "";
-    localImages = [];
+    promptContent.textContent = "Clique sur une image.";
+
+    const images = [];
     localTexts = {};
-    serverImages = null;
 
     [...folderInput.files].forEach(f => {
-        if (f.type.startsWith("image/")) localImages.push(f);
-        if (f.name.endsWith(".txt")) localTexts[f.name.replace(".txt","")] = f;
+        if (f.type.startsWith("image/")) images.push(f);
+        if (f.name.endsWith(".txt")) {
+            localTexts[f.name.replace(".txt","")] = f;
+        }
     });
 
-    localImages.forEach((f,i) => {
+    images.forEach(f => {
         const img = document.createElement("img");
         img.src = URL.createObjectURL(f);
         const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
         img.onclick = () => selectImage(img, base, localTexts[base]);
         gallery.appendChild(img);
     });
-
-    promptContent.innerHTML = "Clique sur une image pour afficher le prompt.";
 };
 
-/* EXPORT ZIP — inchangé */
+/* EXPORT */
 exportZipBtn.onclick = async () => {
     const zip = new JSZip();
     zip.file("index.html", "<!DOCTYPE html>\n" + document.documentElement.outerHTML);
-    const galerie = zip.folder("Galerie");
-
-    for (const f of localImages) {
-        galerie.file(f.name, await f.arrayBuffer());
-        const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
-        if (localTexts[base]) {
-            galerie.file(base + ".txt", await localTexts[base].arrayBuffer());
-        }
-    }
-
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
