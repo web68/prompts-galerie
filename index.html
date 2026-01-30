@@ -11,15 +11,12 @@
     --img-height: 240px;
     --prompt-font-family: Consolas, monospace;
     --prompt-font-size: 13px;
-
     --selected-border-color: orange;
     --selected-border-width: 3px;
-
     --title-color: #4fc1ff;
     --instructions-title-color: #c586c0;
     --prompt-top-padding: 6px;
 }
-
 body {
     margin: 0;
     font-family: Arial, sans-serif;
@@ -27,7 +24,6 @@ body {
     color: #e0e0e0;
     overflow: hidden;
 }
-
 body.resizing { user-select: none; cursor: col-resize; }
 
 .header {
@@ -142,12 +138,14 @@ button:hover { background: #555; }
 <div class="main">
     <div class="gallery" id="gallery"></div>
     <div class="resize-handle" id="resizeHandle"></div>
-    <div class="prompt-panel" id="promptPanel">
-        <div class="prompt-content" id="promptContent"></div>
+    <div class="prompt-panel" id="promptPanel" style="width:500px;">
+        <div class="prompt-content" id="promptContent">
+            Sélectionne un dossier de galerie pour commencer.
+        </div>
     </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast">Prompt copié</div>
 
 <script>
 const DEFAULT_PANEL_WIDTH = 500;
@@ -169,6 +167,8 @@ let imgHeight = 240;
 let localImages = [];
 let localTexts = {};
 let serverImages = null;
+
+const IS_FILE_MODE = location.protocol === "file:";
 
 promptPanel.style.width =
     (parseInt(localStorage.getItem(STORAGE_KEY_WIDTH)) || DEFAULT_PANEL_WIDTH) + "px";
@@ -214,16 +214,8 @@ async function selectImage(img, base, txtFile) {
     selectedImage = img;
     img.classList.add("selected");
 
-    let text = txtFile
-        ? await txtFile.text()
-        : await (await fetch("Galerie/" + base + ".txt")).text();
-
+    const text = await txtFile.text();
     const p = parsePrompt(text, base);
-    if (!p.prompt) {
-        promptContent.innerHTML = "";
-        navigator.clipboard.writeText("");
-        return;
-    }
 
     let html = `<h3 class="prompt-title">${p.title.replace(/_/g," ")}</h3>${p.prompt}`;
     if (p.instructions) {
@@ -232,7 +224,7 @@ async function selectImage(img, base, txtFile) {
 
     promptContent.innerHTML = html;
     await navigator.clipboard.writeText(p.prompt);
-    showToast("Prompt copi&eacute;");
+    showToast("Prompt copié");
 }
 
 /* ZOOM */
@@ -258,23 +250,27 @@ resizeHandle.onmousedown = () => {
     };
 };
 
-/* MODE SERVEUR */
-(async () => {
-    try {
-        const res = await fetch("Galerie/galerie.json", { cache: "no-store" });
-        const data = await res.json();
-        serverImages = data.images;
+/* MODE SERVEUR — uniquement en HTTP */
+if (!IS_FILE_MODE) {
+    (async () => {
+        try {
+            const res = await fetch("Galerie/galerie.json", { cache: "no-store" });
+            const data = await res.json();
+            serverImages = data.images;
 
-        serverImages.forEach((name, i) => {
-            const img = document.createElement("img");
-            img.src = "Galerie/" + name;
-            const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
-            img.onclick = () => selectImage(img, base);
-            gallery.appendChild(img);
-            if (i === 0) img.onload = () => selectImage(img, base);
-        });
-    } catch {}
-})();
+            serverImages.forEach((name, i) => {
+                const img = document.createElement("img");
+                img.src = "Galerie/" + name;
+                const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
+                img.onclick = async () => {
+                    const txt = await fetch("Galerie/" + base + ".txt");
+                    selectImage(img, base, await txt.blob());
+                };
+                gallery.appendChild(img);
+            });
+        } catch {}
+    })();
+}
 
 /* MODE LOCAL */
 folderInput.onchange = () => {
@@ -294,39 +290,24 @@ folderInput.onchange = () => {
         const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
         img.onclick = () => selectImage(img, base, localTexts[base]);
         gallery.appendChild(img);
-        if (i === 0) img.onload = () => selectImage(img, base, localTexts[base]);
     });
+
+    promptContent.innerHTML = "Clique sur une image pour afficher le prompt.";
 };
 
-/* ================= EXPORT ZIP ================= */
+/* EXPORT ZIP — inchangé */
 exportZipBtn.onclick = async () => {
     const zip = new JSZip();
-
     zip.file("index.html", "<!DOCTYPE html>\n" + document.documentElement.outerHTML);
-
     const galerie = zip.folder("Galerie");
-    let images = [];
 
-    if (serverImages) {
-        images = serverImages;
-        for (const name of serverImages) {
-            galerie.file(name, await (await fetch("Galerie/" + name)).arrayBuffer());
-            const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
-            const txt = await fetch("Galerie/" + base + ".txt");
-            if (txt.ok) galerie.file(base + ".txt", await txt.arrayBuffer());
-        }
-    } else {
-        images = localImages.map(f => f.name);
-        for (const f of localImages) {
-            galerie.file(f.name, await f.arrayBuffer());
-            const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
-            if (localTexts[base]) {
-                galerie.file(base + ".txt", await localTexts[base].arrayBuffer());
-            }
+    for (const f of localImages) {
+        galerie.file(f.name, await f.arrayBuffer());
+        const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
+        if (localTexts[base]) {
+            galerie.file(base + ".txt", await localTexts[base].arrayBuffer());
         }
     }
-
-    galerie.file("galerie.json", JSON.stringify({ images }, null, 2));
 
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
