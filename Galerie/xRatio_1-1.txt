@@ -1,0 +1,14 @@
+* Gabarit gris format carré 1:1
+Figure 1 is the source image. Figure 2 is a gray template representing the target aspect ratio. Task: Redraw and extend Figure 1 into the format of Figure 2. Position Figure 1 centered within the frame and outpaint/generate new consistent content at the top and the bottom of figure 1 to fill the entire gray area of Figure 2. The output must be a single full-resolution image matching Figure 2's proportions.
+!
+Gabarit cible pour étendre une image, par exemple d'un format portrait 3/4 vers un format carré. Ce prompt est à utiliser uniquement avec Gemini Nano Banana qui ne permet pas nativement d'étendre une image ou de changer de ratio.
+
+1) Enregistrer l'image gabarit gris sur le bureau.
+2) Ouvrir Gemini et sélectionner Créer une image
+3) Coller le prompt
+4) Glisser l'image qu'il faut étendre
+5) Glisser l'image du gabarit
+6) Lancer. Gemini va étendre l'image au format cible du gabarit.
+
+Astuce pour générer une nouvelle image : 
+Cliquer sur l'icone pour modifier le prompt et ajouter un espace à la fin après le point, puis relancer.

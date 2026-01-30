@@ -7,32 +7,33 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <style>
-/* =========================
-   PARAMÈTRES VISIBLES
-========================= */
 :root {
     --img-height: 240px;
     --prompt-font-family: Consolas, monospace;
     --prompt-font-size: 13px;
+
+    --selected-border-color: orange;
+    --selected-border-width: 3px;
+
+    --title-color: #4fc1ff;
+    --instructions-title-color: #c586c0;
+    --prompt-top-padding: 6px;
 }
 
-/* =========================
-   GLOBAL
-========================= */
 body {
     margin: 0;
     font-family: Arial, sans-serif;
     background: #2b2b2b;
     color: #e0e0e0;
+    overflow: hidden;
 }
 
-/* =========================
-   BANDEAU FIXE
-========================= */
+body.resizing { user-select: none; cursor: col-resize; }
+
 .header {
     position: sticky;
     top: 0;
-    z-index: 1500;
+    z-index: 1000;
     background: #2b2b2b;
     padding: 15px 20px 10px;
     border-bottom: 1px solid #444;
@@ -41,7 +42,6 @@ body {
 .controls {
     display: flex;
     gap: 10px;
-    flex-wrap: wrap;
     margin-top: 10px;
 }
 
@@ -53,13 +53,16 @@ button {
     border-radius: 4px;
     cursor: pointer;
 }
-
 button:hover { background: #555; }
 
-/* =========================
-   GALERIE
-========================= */
+.main {
+    display: flex;
+    height: calc(100vh - 90px);
+}
+
 .gallery {
+    flex: 1;
+    overflow-y: auto;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -69,77 +72,58 @@ button:hover { background: #555; }
 .gallery img {
     height: var(--img-height);
     cursor: pointer;
+    box-sizing: border-box;
 }
 
-/* =========================
-   TOAST (HAUT)
-========================= */
-.toast {
-    position: fixed;
-    top: 15px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,.9);
-    padding: 10px 16px;
-    border-radius: 4px;
-    opacity: 0;
-    transition: .3s;
-    z-index: 3000;
-}
-.toast.show { opacity: 1; }
-
-/* =========================
-   MODAL PROMPT
-========================= */
-.modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,.6);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
+.gallery img.selected {
+    border: var(--selected-border-width) solid var(--selected-border-color);
 }
 
-.modal.show { display: flex; }
-
-.modal-content {
+.prompt-panel {
+    display: flex;
+    flex-direction: column;
     background: #1e1e1e;
-    padding: 20px;
-    max-width: 900px;
-    width: 95%;
-    max-height: 85vh;
-    overflow: auto;
-    border-radius: 6px;
+    border-left: 1px solid #444;
     font-family: var(--prompt-font-family);
     font-size: var(--prompt-font-size);
 }
 
-/* =========================
-   SECTIONS PROMPT
-========================= */
-.section {
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 15px;
+.prompt-content {
+    overflow-y: auto;
+    padding: var(--prompt-top-padding) 8px 10px 0;
     white-space: pre-wrap;
 }
 
-.section h2 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    color: #9cdcfe;
+.prompt-title {
+    margin: 0 0 6px 0;
+    color: var(--title-color);
 }
 
-.section.instructions.missing {
-    color: #888;
-    font-style: italic;
+.instructions-label {
+    margin: 12px 0 6px 0;
+    color: var(--instructions-title-color);
+    font-weight: bold;
 }
 
-.modal-content button {
-    margin-top: 10px;
+.resize-handle {
+    width: 6px;
+    cursor: col-resize;
+    background: #333;
 }
+
+.toast {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,.95);
+    padding: 8px 16px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: .2s;
+    z-index: 5000;
+}
+.toast.show { opacity: 1; }
 </style>
 </head>
 
@@ -151,234 +135,205 @@ button:hover { background: #555; }
         <input type="file" id="folderInput" webkitdirectory multiple>
         <button id="zoomIn">+</button>
         <button id="zoomOut">-</button>
-        <button id="exportZip">Exporter ZIP</button>
-        <button id="showPrompt">Afficher le prompt</button>
+        <button id="exportZip">Exporter le site</button>
     </div>
 </div>
 
-<div class="gallery" id="gallery"></div>
+<div class="main">
+    <div class="gallery" id="gallery"></div>
+    <div class="resize-handle" id="resizeHandle"></div>
+    <div class="prompt-panel" id="promptPanel">
+        <div class="prompt-content" id="promptContent"></div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<!-- MODAL PROMPT -->
-<div class="modal" id="promptModal">
-    <div class="modal-content">
-        <div class="section">
-            <h2>Prompt</h2>
-            <div id="promptText"></div>
-        </div>
-
-        <div class="section instructions" id="instructionSection">
-            <h2>Instructions</h2>
-            <div id="instructionText"></div>
-        </div>
-
-        <button id="closeModal">Fermer</button>
-    </div>
-</div>
-
 <script>
+const DEFAULT_PANEL_WIDTH = 500;
+const STORAGE_KEY_WIDTH = "promptPanelWidth";
+
 const gallery = document.getElementById("gallery");
 const folderInput = document.getElementById("folderInput");
+const zoomInBtn = document.getElementById("zoomIn");
+const zoomOutBtn = document.getElementById("zoomOut");
+const exportZipBtn = document.getElementById("exportZip");
+const promptContent = document.getElementById("promptContent");
+const resizeHandle = document.getElementById("resizeHandle");
+const promptPanel = document.getElementById("promptPanel");
 const toast = document.getElementById("toast");
 
-const modal = document.getElementById("promptModal");
-const modalContent = modal.querySelector(".modal-content");
-const promptText = document.getElementById("promptText");
-const instructionText = document.getElementById("instructionText");
-const instructionSection = document.getElementById("instructionSection");
-
-let imageHeight = 240;
+let selectedImage = null;
+let toastTimer = null;
+let imgHeight = 240;
+let localImages = [];
+let localTexts = {};
 let serverImages = null;
-let lastPrompt = "";
-let lastInstruction = "";
 
-document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
+promptPanel.style.width =
+    (parseInt(localStorage.getItem(STORAGE_KEY_WIDTH)) || DEFAULT_PANEL_WIDTH) + "px";
 
-zoomIn.onclick = () => {
-    imageHeight *= 1.2;
-    document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
-};
-
-zoomOut.onclick = () => {
-    imageHeight /= 1.2;
-    document.documentElement.style.setProperty('--img-height', imageHeight + 'px');
-};
-
-function showToast(message) {
-    toast.textContent = message;
+function showToast(msg) {
+    clearTimeout(toastTimer);
+    toast.innerHTML = msg;
     toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 1600);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 1000);
 }
 
-function resetPromptMemory() {
-    lastPrompt = "";
-    lastInstruction = "";
-    navigator.clipboard.writeText("");
-}
+function parsePrompt(text, fallback) {
+    const lines = text.split(/\r?\n/);
+    let title = fallback;
+    let i = 0;
 
-function openPromptModal() {
-    if (!lastPrompt) return;
-    promptText.textContent = lastPrompt;
-
-    if (lastInstruction.trim()) {
-        instructionText.textContent = lastInstruction;
-        instructionSection.classList.remove("missing");
-    } else {
-        instructionText.textContent = "Pas d’instruction particulière pour ce prompt";
-        instructionSection.classList.add("missing");
+    if (lines[0]?.startsWith("*")) {
+        title = lines[0].slice(1).trim();
+        i = 1;
     }
-    modal.classList.add("show");
+
+    let prompt = [];
+    let instructions = [];
+    let mode = "prompt";
+
+    for (; i < lines.length; i++) {
+        if (lines[i].trim() === "!") {
+            mode = "instructions";
+            continue;
+        }
+        (mode === "prompt" ? prompt : instructions).push(lines[i]);
+    }
+
+    return {
+        title,
+        prompt: prompt.join("\n").trim(),
+        instructions: instructions.join("\n").trim()
+    };
 }
 
-/* =======================
-   MODE SERVEUR
-======================= */
-async function loadGalerieFromServer() {
+async function selectImage(img, base, txtFile) {
+    if (selectedImage) selectedImage.classList.remove("selected");
+    selectedImage = img;
+    img.classList.add("selected");
+
+    let text = txtFile
+        ? await txtFile.text()
+        : await (await fetch("Galerie/" + base + ".txt")).text();
+
+    const p = parsePrompt(text, base);
+    if (!p.prompt) {
+        promptContent.innerHTML = "";
+        navigator.clipboard.writeText("");
+        return;
+    }
+
+    let html = `<h3 class="prompt-title">${p.title.replace(/_/g," ")}</h3>${p.prompt}`;
+    if (p.instructions) {
+        html += `<div class="instructions-label">Instructions</div>${p.instructions}`;
+    }
+
+    promptContent.innerHTML = html;
+    await navigator.clipboard.writeText(p.prompt);
+    showToast("Prompt copi&eacute;");
+}
+
+/* ZOOM */
+zoomInBtn.onclick = () => {
+    imgHeight += 20;
+    document.documentElement.style.setProperty("--img-height", imgHeight + "px");
+};
+zoomOutBtn.onclick = () => {
+    imgHeight = Math.max(80, imgHeight - 20);
+    document.documentElement.style.setProperty("--img-height", imgHeight + "px");
+};
+
+/* RESIZE */
+resizeHandle.onmousedown = () => {
+    document.body.classList.add("resizing");
+    document.onmousemove = e => {
+        promptPanel.style.width = Math.max(220, window.innerWidth - e.clientX) + "px";
+    };
+    document.onmouseup = () => {
+        document.body.classList.remove("resizing");
+        localStorage.setItem(STORAGE_KEY_WIDTH, parseInt(promptPanel.style.width));
+        document.onmousemove = document.onmouseup = null;
+    };
+};
+
+/* MODE SERVEUR */
+(async () => {
     try {
         const res = await fetch("Galerie/galerie.json", { cache: "no-store" });
-        if (!res.ok) throw "absent";
-
         const data = await res.json();
         serverImages = data.images;
-        gallery.innerHTML = "";
 
-        for (const name of serverImages) {
+        serverImages.forEach((name, i) => {
             const img = document.createElement("img");
             img.src = "Galerie/" + name;
-            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
-
-            img.onclick = async () => {
-                resetPromptMemory();
-                const p = await fetch("Galerie/" + base + ".txt");
-                if (!p.ok) { showToast("Il manque le prompt."); return; }
-                lastPrompt = await p.text();
-
-                const i = await fetch("Galerie/" + base + ".ins");
-                lastInstruction = i.ok ? await i.text() : "";
-
-                await navigator.clipboard.writeText(lastPrompt);
-                showToast("Prompt copié");
-            };
-
-            img.ondblclick = async () => {
-                await img.onclick();
-                openPromptModal();
-            };
-
+            const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
+            img.onclick = () => selectImage(img, base);
             gallery.appendChild(img);
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
+            if (i === 0) img.onload = () => selectImage(img, base);
+        });
+    } catch {}
+})();
 
-/* =======================
-   MODE LOCAL
-======================= */
+/* MODE LOCAL */
 folderInput.onchange = () => {
     gallery.innerHTML = "";
+    localImages = [];
+    localTexts = {};
     serverImages = null;
 
-    const files = Array.from(folderInput.files);
-    const texts = {};
-    const instructions = {};
-
-    files.forEach(f => {
-        if (f.name.endsWith(".txt")) texts[f.name.replace(".txt","")] = f;
-        if (f.name.endsWith(".ins")) instructions[f.name.replace(".ins","")] = f;
+    [...folderInput.files].forEach(f => {
+        if (f.type.startsWith("image/")) localImages.push(f);
+        if (f.name.endsWith(".txt")) localTexts[f.name.replace(".txt","")] = f;
     });
 
-    files.forEach(f => {
-        if (!f.type.startsWith("image/")) return;
-
+    localImages.forEach((f,i) => {
         const img = document.createElement("img");
         img.src = URL.createObjectURL(f);
         const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
-
-        img.onclick = async () => {
-            resetPromptMemory();
-            if (!texts[base]) { showToast("Il manque le prompt."); return; }
-            lastPrompt = await texts[base].text();
-            lastInstruction = instructions[base] ? await instructions[base].text() : "";
-
-            await navigator.clipboard.writeText(lastPrompt);
-            showToast("Prompt copié");
-        };
-
-        img.ondblclick = async () => {
-            await img.onclick();
-            openPromptModal();
-        };
-
+        img.onclick = () => selectImage(img, base, localTexts[base]);
         gallery.appendChild(img);
+        if (i === 0) img.onload = () => selectImage(img, base, localTexts[base]);
     });
 };
 
-/* =======================
-   EXPORT ZIP
-======================= */
-exportZip.onclick = async () => {
+/* ================= EXPORT ZIP ================= */
+exportZipBtn.onclick = async () => {
     const zip = new JSZip();
+
+    zip.file("index.html", "<!DOCTYPE html>\n" + document.documentElement.outerHTML);
+
     const galerie = zip.folder("Galerie");
+    let images = [];
 
     if (serverImages) {
-        galerie.file("galerie.json", JSON.stringify({
-            generated: new Date().toISOString(),
-            images: serverImages
-        }, null, 2));
-
+        images = serverImages;
         for (const name of serverImages) {
-            const base = name.replace(/\.(png|jpg|jpeg)$/i, "");
-            galerie.file(name, await (await fetch("Galerie/"+name)).arrayBuffer());
-
+            galerie.file(name, await (await fetch("Galerie/" + name)).arrayBuffer());
+            const base = name.replace(/\.(png|jpg|jpeg)$/i,"");
             const txt = await fetch("Galerie/" + base + ".txt");
             if (txt.ok) galerie.file(base + ".txt", await txt.arrayBuffer());
-
-            const ins = await fetch("Galerie/" + base + ".ins");
-            if (ins.ok) galerie.file(base + ".ins", await ins.arrayBuffer());
         }
     } else {
-        const files = Array.from(folderInput.files);
-        galerie.file("galerie.json", JSON.stringify({
-            generated: new Date().toISOString(),
-            images: files.filter(f => f.type.startsWith("image/")).map(f => f.name)
-        }, null, 2));
-
-        for (const f of files) {
-            if (f.type.startsWith("image/") || f.name.endsWith(".txt") || f.name.endsWith(".ins")) {
-                galerie.file(f.name, await f.arrayBuffer());
+        images = localImages.map(f => f.name);
+        for (const f of localImages) {
+            galerie.file(f.name, await f.arrayBuffer());
+            const base = f.name.replace(/\.(png|jpg|jpeg)$/i,"");
+            if (localTexts[base]) {
+                galerie.file(base + ".txt", await localTexts[base].arrayBuffer());
             }
         }
     }
 
+    galerie.file("galerie.json", JSON.stringify({ images }, null, 2));
+
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "galerie.zip";
+    a.download = "site-galerie.zip";
     a.click();
 };
-
-/* =======================
-   UI EVENTS
-======================= */
-showPrompt.onclick = openPromptModal;
-closeModal.onclick = () => modal.classList.remove("show");
-
-modal.onclick = () => modal.classList.remove("show");
-modalContent.onclick = e => e.stopPropagation();
-
-document.addEventListener("keydown", e => {
-    if (e.key === "Escape") modal.classList.remove("show");
-});
-
-/* =======================
-   INIT
-======================= */
-window.addEventListener("DOMContentLoaded", async () => {
-    const ok = await loadGalerieFromServer();
-    if (!ok) console.log("Mode local actif");
-});
 </script>
 
 </body>
